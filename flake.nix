@@ -25,7 +25,7 @@
         nativeBuildInputs = with pkgs; [ pkg-config ];
         buildInputs = buildInputs;
         buildPhase = ''
-          gcc -o screencast main.c `pkg-config --cflags --libs libportal gio-2.0 pipewire sdl3`
+          gcc -o screencast main.c `pkg-config --cflags --libs libportal gio-2.0 libpipewire-0.3 sdl3`
         '';
         installPhase = ''
           mkdir -p $out/bin

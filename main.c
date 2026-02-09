@@ -1,7 +1,7 @@
 #include <libportal/portal.h>
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <glib.h>
 
 typedef struct {
@@ -32,7 +32,7 @@ static void on_process(void *userdata) {
 
     SDL_UpdateTexture(data->texture, NULL, src, data->width * 4);
     SDL_RenderClear(data->renderer);
-    SDL_RenderCopy(data->renderer, data->texture, NULL, NULL);
+    SDL_RenderTexture(data->renderer, data->texture, NULL, NULL);
     SDL_RenderPresent(data->renderer);
 
 done:
@@ -53,12 +53,10 @@ static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *
     data->height = info.size.height;
 
     data->window = SDL_CreateWindow("Screencast",
-                                    SDL_WINDOWPOS_UNDEFINED,
-                                    SDL_WINDOWPOS_UNDEFINED,
                                     data->width, data->height,
-                                    SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                                    SDL_WINDOW_RESIZABLE);
     
-    data->renderer = SDL_CreateRenderer(data->window, -1, SDL_RENDERER_ACCELERATED);
+    data->renderer = SDL_CreateRenderer(data->window, NULL);
     data->texture = SDL_CreateTexture(data->renderer,
                                      SDL_PIXELFORMAT_BGRA32,
                                      SDL_TEXTUREACCESS_STREAMING,
@@ -145,7 +143,7 @@ static gboolean check_sdl_events(gpointer user_data) {
     SDL_Event event;
 
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) {
+        if (event.type == SDL_EVENT_QUIT) {
             g_main_loop_quit(data->main_loop);
             return G_SOURCE_REMOVE;
         }
