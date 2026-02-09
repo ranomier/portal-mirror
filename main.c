@@ -15,12 +15,13 @@ typedef struct {
     int width;
     int height;
     GMainLoop *main_loop;
-    
+
     GMutex frame_mutex;
     uint8_t *frame_buffer;
     gboolean new_frame;
     gboolean window_created;
     gboolean format_ready;
+    gboolean needs_texture_recreate;
 } AppData;
 
 static AppData *global_data = NULL;
@@ -47,7 +48,7 @@ static void on_process(void *userdata) {
     src = buf->datas[0].data;
 
     g_mutex_lock(&data->frame_mutex);
-    if (data->frame_buffer != NULL) {
+    if (data->frame_buffer != NULL && !data->needs_texture_recreate) {
         memcpy(data->frame_buffer, src, data->width * data->height * 4);
         data->new_frame = TRUE;
     }
@@ -59,7 +60,7 @@ done:
 
 static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *param) {
     AppData *data = userdata;
-    
+
     if (param == NULL || id != SPA_PARAM_Format)
         return;
 
@@ -68,13 +69,30 @@ static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *
         return;
 
     g_mutex_lock(&data->frame_mutex);
-    data->width = info.size.width;
-    data->height = info.size.height;
-    data->frame_buffer = g_malloc(data->width * data->height * 4);
-    data->format_ready = TRUE;
-    g_mutex_unlock(&data->frame_mutex);
 
-    g_print("Video format received: %dx%d\n", data->width, data->height);
+    int new_width = info.size.width;
+    int new_height = info.size.height;
+
+    if (new_width != data->width || new_height != data->height) {
+        g_print("Resolution changed: %dx%d -> %dx%d\n", data->width, data->height, new_width, new_height);
+
+        if (data->frame_buffer) {
+            g_free(data->frame_buffer);
+        }
+
+        data->width = new_width;
+        data->height = new_height;
+        data->frame_buffer = g_malloc(data->width * data->height * 4);
+        data->needs_texture_recreate = TRUE;
+        data->format_ready = TRUE;
+    } else if (!data->format_ready) {
+        data->width = new_width;
+        data->height = new_height;
+        data->frame_buffer = g_malloc(data->width * data->height * 4);
+        data->format_ready = TRUE;
+    }
+
+    g_mutex_unlock(&data->frame_mutex);
 }
 
 static const struct pw_stream_events stream_events = {
@@ -94,7 +112,7 @@ static void start_pipewire_stream(AppData *data, uint32_t node_id) {
     pw_init(NULL, NULL);
 
     data->loop = pw_thread_loop_new("pipewire-loop", NULL);
-    
+
     props = pw_properties_new(
         PW_KEY_MEDIA_TYPE, "Video",
         PW_KEY_MEDIA_CATEGORY, "Capture",
@@ -147,9 +165,9 @@ static void on_session_started(GObject *source, GAsyncResult *result, gpointer u
         g_main_loop_quit(data->main_loop);
         return;
     }
-    
+
     g_variant_iter_init(&iter, streams);
-    
+
     if (g_variant_iter_next(&iter, "(u@a{sv})", &node_id, &stream_properties)) {
         g_print("Got node ID: %u\n", node_id);
         start_pipewire_stream(data, node_id);
@@ -167,7 +185,7 @@ static void on_screencast_created(GObject *source, GAsyncResult *result, gpointe
     XdpSession *session;
 
     session = xdp_portal_create_screencast_session_finish(portal, result, &error);
-    
+
     if (error) {
         g_printerr("Error creating session: %s\n", error->message);
         g_main_loop_quit(data->main_loop);
@@ -193,21 +211,19 @@ static gboolean check_sdl_events(gpointer user_data) {
             }
         }
     }
-    
+
     g_mutex_lock(&data->frame_mutex);
-    
+
     if (data->format_ready && !data->window_created) {
-        data->window = SDL_CreateWindow("Screencast",
-                                        data->width, data->height,
-                                        SDL_WINDOW_RESIZABLE);
-        
+        data->window = SDL_CreateWindow("Screencast", 800, 600, SDL_WINDOW_RESIZABLE);
+
         if (!data->window) {
             g_printerr("Failed to create window: %s\n", SDL_GetError());
             g_mutex_unlock(&data->frame_mutex);
             g_main_loop_quit(data->main_loop);
             return G_SOURCE_REMOVE;
         }
-        
+
         data->renderer = SDL_CreateRenderer(data->window, NULL);
         if (!data->renderer) {
             g_printerr("Failed to create renderer: %s\n", SDL_GetError());
@@ -215,7 +231,9 @@ static gboolean check_sdl_events(gpointer user_data) {
             g_main_loop_quit(data->main_loop);
             return G_SOURCE_REMOVE;
         }
-        
+
+        SDL_SetRenderDrawColor(data->renderer, 0, 0, 0, 255);
+
         data->texture = SDL_CreateTexture(data->renderer,
                                          SDL_PIXELFORMAT_BGRA32,
                                          SDL_TEXTUREACCESS_STREAMING,
@@ -226,21 +244,63 @@ static gboolean check_sdl_events(gpointer user_data) {
             g_main_loop_quit(data->main_loop);
             return G_SOURCE_REMOVE;
         }
-        
+
         data->window_created = TRUE;
-        g_print("Window created successfully on main thread: %dx%d\n", data->width, data->height);
+        data->needs_texture_recreate = FALSE;
+        g_print("Window created: %dx%d\n", data->width, data->height);
     }
-    
+
+    if (data->needs_texture_recreate && data->window_created) {
+        if (data->texture) {
+            SDL_DestroyTexture(data->texture);
+        }
+
+        data->texture = SDL_CreateTexture(data->renderer,
+                                         SDL_PIXELFORMAT_BGRA32,
+                                         SDL_TEXTUREACCESS_STREAMING,
+                                         data->width, data->height);
+        if (!data->texture) {
+            g_printerr("Failed to recreate texture: %s\n", SDL_GetError());
+            g_mutex_unlock(&data->frame_mutex);
+            g_main_loop_quit(data->main_loop);
+            return G_SOURCE_REMOVE;
+        }
+
+        data->needs_texture_recreate = FALSE;
+        g_print("Texture recreated: %dx%d\n", data->width, data->height);
+    }
+
     if (data->new_frame && data->texture && data->renderer) {
         SDL_UpdateTexture(data->texture, NULL, data->frame_buffer, data->width * 4);
+
+        int window_w, window_h;
+        SDL_GetWindowSize(data->window, &window_w, &window_h);
+
+        float stream_aspect = (float)data->width / (float)data->height;
+        float window_aspect = (float)window_w / (float)window_h;
+
+        SDL_FRect dst_rect;
+
+        if (stream_aspect > window_aspect) {
+            dst_rect.w = window_w;
+            dst_rect.h = window_w / stream_aspect;
+            dst_rect.x = 0;
+            dst_rect.y = (window_h - dst_rect.h) / 2;
+        } else {
+            dst_rect.h = window_h;
+            dst_rect.w = window_h * stream_aspect;
+            dst_rect.x = (window_w - dst_rect.w) / 2;
+            dst_rect.y = 0;
+        }
+
         SDL_RenderClear(data->renderer);
-        SDL_RenderTexture(data->renderer, data->texture, NULL, NULL);
+        SDL_RenderTexture(data->renderer, data->texture, NULL, &dst_rect);
         SDL_RenderPresent(data->renderer);
         data->new_frame = FALSE;
     }
-    
+
     g_mutex_unlock(&data->frame_mutex);
-    
+
     return G_SOURCE_CONTINUE;
 }
 
@@ -256,9 +316,9 @@ int main(int argc, char *argv[]) {
         g_printerr("Failed to initialize SDL: %s\n", SDL_GetError());
         return 1;
     }
-    
+
     g_mutex_init(&data.frame_mutex);
-    
+
     portal = xdp_portal_new();
     data.main_loop = g_main_loop_new(NULL, FALSE);
 
@@ -286,19 +346,19 @@ int main(int argc, char *argv[]) {
         pw_thread_loop_stop(data.loop);
         pw_thread_loop_destroy(data.loop);
     }
-    
+
     if (data.texture)
         SDL_DestroyTexture(data.texture);
     if (data.renderer)
         SDL_DestroyRenderer(data.renderer);
     if (data.window)
         SDL_DestroyWindow(data.window);
-    
+
     g_mutex_lock(&data.frame_mutex);
     if (data.frame_buffer)
         g_free(data.frame_buffer);
     g_mutex_unlock(&data.frame_mutex);
-    
+
     g_mutex_clear(&data.frame_mutex);
     g_main_loop_unref(data.main_loop);
     g_object_unref(portal);
