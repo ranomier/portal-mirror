@@ -14,7 +14,7 @@
           libportal
           glib
           pipewire
-          SDL2
+          SDL3
           pkg-config
           gcc
         ];
@@ -24,9 +24,9 @@
         name = "screencast";
         src = ./.;
         nativeBuildInputs = with pkgs; [ pkg-config ];
-        buildInputs = with pkgs; [ libportal glib pipewire SDL2 ];
+        buildInputs = with pkgs; [ libportal glib pipewire sdl3 ];
         buildPhase = ''
-          gcc -o screencast main.c `pkg-config --cflags --libs libportal pipewire-0.3 sdl2`
+          gcc -o screencast main.c `pkg-config --cflags --libs libportal gio-2.0 libpipewire libspa sdl3`
         '';
         installPhase = ''
           mkdir -p $out/bin
