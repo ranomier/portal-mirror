@@ -19,17 +19,19 @@
         buildInputs = buildInputs ++ (with pkgs; [ pkg-config gcc ]);
       };
 
-      packages.${system}.default = pkgs.stdenv.mkDerivation {
-        name = "screencast";
+      packages.${system}.default = let
+        name = "portal-mirror";
+      in pkgs.stdenv.mkDerivation {
+        name = name;
         src = ./.;
         nativeBuildInputs = with pkgs; [ pkg-config ];
         buildInputs = buildInputs;
         buildPhase = ''
-          gcc -o screencast main.c `pkg-config --cflags --libs libportal gio-2.0 libpipewire-0.3 sdl3`
+          gcc -o ${name} main.c $(pkg-config --cflags --libs libportal gio-2.0 libpipewire-0.3 sdl3)
         '';
         installPhase = ''
           mkdir -p $out/bin
-          cp screencast $out/bin/
+          cp ${name} $out/bin/
         '';
       };
     };

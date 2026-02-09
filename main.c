@@ -121,7 +121,7 @@ static void start_pipewire_stream(AppData *data, uint32_t node_id) {
 
     data->stream = pw_stream_new_simple(
         pw_thread_loop_get_loop(data->loop),
-        "screencast-viewer",
+        "portal-mirror",
         props,
         &stream_events,
         data);
