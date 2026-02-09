@@ -134,41 +134,55 @@ static void start_pipewire_stream(AppData *data, uint32_t node_id) {
     pw_thread_loop_start(data->loop);
 }
 
-static void on_screencast_created(GObject *source, GAsyncResult *result, gpointer user_data) {
-    XdpPortal *portal = XDP_PORTAL(source);
+static void on_session_started(GObject *source, GAsyncResult *result, gpointer user_data) {
+    XdpSession *session = XDP_SESSION(source);
     AppData *data = user_data;
     g_autoptr(GError) error = NULL;
-    XdpSession *session;
     GVariant *streams;
     GVariantIter iter;
     uint32_t node_id;
     GVariant *stream_properties;
 
-    session = xdp_portal_create_screencast_session_finish(portal, result, &error);
-    
-    if (error) {
-        g_printerr("Error: %s\n", error->message);
+    if (!xdp_session_start_finish(session, result, &error)) {
+        g_printerr("Failed to start session: %s\n", error->message);
         g_main_loop_quit(data->main_loop);
         return;
     }
 
     streams = xdp_session_get_streams(session);
-    g_print("streams pointer: %p\n", streams);
     if (!streams) {
         g_printerr("No streams available!\n");
         g_main_loop_quit(data->main_loop);
-        g_object_unref(session);
         return;
     }
     
     g_variant_iter_init(&iter, streams);
     
     if (g_variant_iter_next(&iter, "(u@a{sv})", &node_id, &stream_properties)) {
+        g_print("Got node ID: %u\n", node_id);
         start_pipewire_stream(data, node_id);
         g_variant_unref(stream_properties);
+    } else {
+        g_printerr("Failed to get stream info\n");
+        g_main_loop_quit(data->main_loop);
+    }
+}
+
+static void on_screencast_created(GObject *source, GAsyncResult *result, gpointer user_data) {
+    XdpPortal *portal = XDP_PORTAL(source);
+    AppData *data = user_data;
+    g_autoptr(GError) error = NULL;
+    XdpSession *session;
+
+    session = xdp_portal_create_screencast_session_finish(portal, result, &error);
+    
+    if (error) {
+        g_printerr("Error creating session: %s\n", error->message);
+        g_main_loop_quit(data->main_loop);
+        return;
     }
 
-    g_object_unref(session);
+    xdp_session_start(session, NULL, NULL, on_session_started, data);
 }
 
 static gboolean check_sdl_events(gpointer user_data) {
