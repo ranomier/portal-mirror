@@ -7,24 +7,23 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      buildInputs = with pkgs; [
+        libportal
+        glib
+        pipewire
+        sdl3
+      ];
     in
     {
       devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          libportal
-          glib
-          pipewire
-          SDL3
-          pkg-config
-          gcc
-        ];
+        buildInputs = buildInputs ++ (with pkgs; [ pkg-config gcc ]);
       };
 
       packages.${system}.default = pkgs.stdenv.mkDerivation {
         name = "screencast";
         src = ./.;
         nativeBuildInputs = with pkgs; [ pkg-config ];
-        buildInputs = with pkgs; [ libportal glib pipewire sdl3 ];
+        buildInputs = buildInputs;
         buildPhase = ''
           gcc -o screencast main.c `pkg-config --cflags --libs libportal gio-2.0 libpipewire libspa sdl3`
         '';
