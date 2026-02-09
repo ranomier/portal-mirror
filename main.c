@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include <glib.h>
 #include <string.h>
+#include <signal.h>
 
 typedef struct {
     SDL_Window *window;
@@ -21,6 +22,14 @@ typedef struct {
     gboolean window_created;
     gboolean format_ready;
 } AppData;
+
+static AppData *global_data = NULL;
+
+static void signal_handler(int signum) {
+    if (global_data && global_data->main_loop) {
+        g_main_loop_quit(global_data->main_loop);
+    }
+}
 
 static void on_process(void *userdata) {
     AppData *data = userdata;
@@ -177,6 +186,12 @@ static gboolean check_sdl_events(gpointer user_data) {
             g_main_loop_quit(data->main_loop);
             return G_SOURCE_REMOVE;
         }
+        if (event.type == SDL_EVENT_KEY_DOWN) {
+            if ((event.key.mod & SDL_KMOD_CTRL) && event.key.key == SDLK_Q) {
+                g_main_loop_quit(data->main_loop);
+                return G_SOURCE_REMOVE;
+            }
+        }
     }
     
     g_mutex_lock(&data->frame_mutex);
@@ -233,6 +248,10 @@ int main(int argc, char *argv[]) {
     XdpPortal *portal;
     AppData data = {0};
 
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    global_data = &data;
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         g_printerr("Failed to initialize SDL: %s\n", SDL_GetError());
         return 1;
@@ -257,10 +276,17 @@ int main(int argc, char *argv[]) {
 
     g_main_loop_run(data.main_loop);
 
-    if (data.stream)
-        pw_stream_destroy(data.stream);
-    if (data.loop)
+    if (data.loop) {
+        pw_thread_loop_lock(data.loop);
+        if (data.stream) {
+            pw_stream_destroy(data.stream);
+            data.stream = NULL;
+        }
+        pw_thread_loop_unlock(data.loop);
+        pw_thread_loop_stop(data.loop);
         pw_thread_loop_destroy(data.loop);
+    }
+    
     if (data.texture)
         SDL_DestroyTexture(data.texture);
     if (data.renderer)
