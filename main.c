@@ -26,6 +26,8 @@ static void on_process(void *userdata) {
     struct spa_buffer *buf;
     uint8_t *src;
 
+    g_print("on_process called\n");
+
     if ((b = pw_stream_dequeue_buffer(data->stream)) == NULL)
         return;
 
@@ -49,6 +51,8 @@ done:
 static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *param) {
     AppData *data = userdata;
     
+    g_print("on_param_changed called, id=%u\n", id);
+
     if (param == NULL || id != SPA_PARAM_Format)
         return;
 
@@ -58,6 +62,8 @@ static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *
 
     data->width = info.size.width;
     data->height = info.size.height;
+
+    g_print("Video format: %dx%d\n", data->width, data->height);
 
     g_mutex_lock(&data->frame_mutex);
     data->frame_buffer = g_malloc(data->width * data->height * 4);
@@ -86,6 +92,8 @@ static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *
         g_printerr("Failed to create texture: %s\n", SDL_GetError());
         return;
     }
+
+    g_print("Window and texture created successfully\n");
 }
 
 static const struct pw_stream_events stream_events = {
@@ -99,6 +107,8 @@ static void start_pipewire_stream(AppData *data, uint32_t node_id) {
     uint8_t buffer[1024];
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
     const struct spa_pod *params[1];
+
+    g_print("Starting PipeWire stream for node %u\n", node_id);
 
     pw_init(NULL, NULL);
 
@@ -132,6 +142,7 @@ static void start_pipewire_stream(AppData *data, uint32_t node_id) {
                      params, 1);
 
     pw_thread_loop_start(data->loop);
+    g_print("PipeWire thread loop started\n");
 }
 
 static void on_session_started(GObject *source, GAsyncResult *result, gpointer user_data) {
