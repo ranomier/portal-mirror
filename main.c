@@ -153,6 +153,14 @@ static void on_screencast_created(GObject *source, GAsyncResult *result, gpointe
     }
 
     streams = xdp_session_get_streams(session);
+    g_print("streams pointer: %p\n", streams);
+    if (!streams) {
+        g_printerr("No streams available!\n");
+        g_main_loop_quit(data->main_loop);
+        g_object_unref(session);
+        return;
+    }
+    
     g_variant_iter_init(&iter, streams);
     
     if (g_variant_iter_next(&iter, "(u@a{sv})", &node_id, &stream_properties)) {
